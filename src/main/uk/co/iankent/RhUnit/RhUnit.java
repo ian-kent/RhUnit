@@ -1,6 +1,5 @@
 package uk.co.iankent.RhUnit;
 
-import com.sun.deploy.util.Waiter;
 import org.apache.log4j.Logger;
 import org.mozilla.javascript.*;
 import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
