@@ -1,31 +1,89 @@
 package uk.co.iankent.RhUnit;
 
+import com.sun.deploy.util.Waiter;
 import org.apache.log4j.Logger;
 import org.mozilla.javascript.*;
+import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
+import uk.co.iankent.RhUnit.assertors.AbstractAssertorResult;
+import uk.co.iankent.RhUnit.assertors._equal.equalAssertor;
+import uk.co.iankent.RhUnit.assertors._ok.okAssertor;
+import uk.co.iankent.RhUnit.assertors._strictEqual.strictEqualAssertor;
+import uk.co.iankent.RhUnit.assertors._throws.throwsAssertor;
 
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 
 /**
- * RhUnit - A Javascript unit testing framework for Rhino
+ * RhUnit - A qUnit compatible Javascript unit testing framework for Rhino
  * Copyright (c) Ian Kent, 2012
  */
 public class RhUnit {
 
     protected Logger logger = Logger.getLogger(this.getClass());
 
+    protected RhinoEnvironment environment;
     protected Context context;
     protected Scriptable scope;
 
-    protected List<Test> tests = new LinkedList<Test>();
+    protected Queue<Test> queuedTests = new LinkedList<Test>();
+    protected List<Test> completedTests = new LinkedList<Test>();
     protected Test currentTest = null;
 
     protected int total = 0, passed = 0, failed = 0;
 
-    public RhUnit(Context context, Scriptable scope) {
-        this.context = context;
-        this.scope = scope;
+    protected String currentModule = null;
+
+    protected boolean running = true;
+    protected boolean executing = false;
+
+    public RhUnit(RhinoEnvironment environment) {
+        this.environment = environment;
+        this.context = environment.getContext();
+        this.scope = environment.getScope();
+
         beforeRhUnit();
+    }
+
+    public Context getContext() {
+        return context;
+    }
+
+    public Scriptable getScope() {
+        return scope;
+    }
+
+    protected Timer timer = new Timer();
+    protected int outstandingTimeouts = 0;
+    protected int timerId = 0;
+    HashMap<Integer, TimerTask> timerTasks = new HashMap<Integer, TimerTask>();
+
+    public int _setTimeout(int timeout, final NativeFunction block) {
+        outstandingTimeouts++;
+        timerId++;
+        final int thisTimerId = timerId;
+
+        logger.trace("Setting timeout of " + timeout + "ms with ID " + thisTimerId);
+
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                if(!timerTasks.containsKey(thisTimerId)) return;
+
+                logger.trace("Executing timer with ID " + thisTimerId);
+
+                timerTasks.remove(thisTimerId);
+                block.call(getContext(), getScope(), getScope(), new Object[] {});
+                outstandingTimeouts--;
+            }
+        };
+        timerTasks.put(thisTimerId, task);
+        timer.schedule(task, timeout);
+
+        return thisTimerId;
+    }
+
+    public void _cancelTimeout(int id) {
+        logger.trace("Cancelling timeout with ID " + id);
+        timerTasks.remove(id);
     }
 
     protected void beforeRhUnit() {
@@ -34,34 +92,56 @@ public class RhUnit {
 
         // This maps javascript functions to RhUnit methods
         String code =
+                "function load(file) { RhUnit._load(file); };\n" +
                 "function test(message, block) { RhUnit._test(message, block); };\n" +
-                "function ok(result, message) { RhUnit._ok(result, message); };\n" +
-                "function not_ok(result, message) { RhUnit._not_ok(result, message); };\n" +
-                "function equal(actual, expected, message) { RhUnit._equal(actual, expected, message); };\n" +
-                "function not_equal(actual, expected, message) { RhUnit._not_equal(actual, expected, message); };\n" +
                 "function expect(tests) { RhUnit._expect(tests); };\n" +
-                "function throws(block, expected, message) { RhUnit._throws(block, expected, message); };\n" +
-                "function not_throws(block, expected, message) { RhUnit._not_throws(block, expected, message); };";
-
+                "function start() { RhUnit._start(); };\n" +
+                "function stop() { RhUnit._stop(); };\n" +
+                "function module(name) { RhUnit._module(name); };\n" +
+                "function setTimeout(block, timeout) { RhUnit._setTimeout(timeout, block); };\n" +
+                "function cancelTimeout(id) { RhUnit._cancelTimeout(id); };\n";
         context.evaluateString(scope, code, "RhUnit", 1, null);
+
+        List<AbstractAssertor> assertors = new LinkedList<AbstractAssertor>();
+        assertors.add(new okAssertor());
+        assertors.add(new equalAssertor());
+        assertors.add(new throwsAssertor());
+        assertors.add(new strictEqualAssertor());
+
+        for(AbstractAssertor assertor : assertors) {
+            assertor.setRhUnit(this);
+            Object wrappedAssertor = Context.javaToJS(assertor, scope);
+            ScriptableObject.putProperty(scope, assertor.getClass().getSimpleName(), wrappedAssertor);
+            context.evaluateString(scope, assertor.getJavascript(), assertor.getClass().getSimpleName(), 1, null);
+        }
     }
 
     public void afterRhUnit() {
-        if(currentTest == null)
-            throw new RuntimeException("No tests were run");
+        while(outstandingTimeouts > 0 || executing) {
+            // This trace is *overly* verbose!
+            //logger.trace("Still got outstanding tests: " + outstandingTimeouts + " " + executing);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                logger.error(e, e);
+            }
+        }
 
-        currentTest.afterTest();
-        currentTest = null;
+        if(queuedTests.size() > 0)
+            logger.error("Some tests were not complete");
+
+        if(completedTests.size() == 0)
+            logger.error("No tests were run");
 
         logger.info("RhUnit tests complete");
-        for(Test test : tests) {
+        for(Test test : completedTests) {
             total += test.getTotal();
             passed += test.getPassed();
             failed += test.getFailed();
             logger.info(test.toString());
 
-            for(Assert a : test.getAsserts()) {
-                logger.info(a.toString());
+            for(AbstractAssertorResult result : test.getResults()) {
+                logger.info(result.toString());
             }
         }
         logger.info(toString());
@@ -88,56 +168,85 @@ public class RhUnit {
                 '}';
     }
 
+    public void result(AbstractAssertorResult result) {
+        // do something with it - i.e. add it to the current test!
+        if(currentTest == null)
+            throw new RuntimeException(result.getName() + "() called outside test()");
+
+        result.setModule(currentModule);
+        currentTest.result(result);
+    }
+
+    public void executeTests() {
+        logger.trace("Beginning executeTests");
+        if(executing) {
+            logger.trace("Already executing - returning");
+            return;
+        }
+        if(!running) {
+            logger.trace("Not running - returning");
+            return;
+        }
+        executing = true;
+
+        if(currentTest != null) {
+            logger.trace("Finishing test: " + currentTest.getMessage());
+            currentTest.afterTest();
+            completedTests.add(currentTest);
+            currentTest = null;
+        }
+
+        while(queuedTests.size() > 0) {
+            if(!running) {
+                logger.trace("Not running - assuming stop() was called");
+                break;
+            }
+
+            Test test = queuedTests.remove();
+            currentTest = test;
+            test.beforeTest();
+            logger.trace("Executing test: " + test.getMessage());
+            test.execute();
+
+            if(running) {
+                logger.trace("Finishing test: " + test.getMessage());
+                test.afterTest();
+                currentTest = null;
+                completedTests.add(test);
+            } else {
+                logger.trace("Not running - assuming stop() was called, delaying finishing test");
+            }
+        }
+
+        executing = false;
+        logger.trace("Done executeTests");
+    }
+
+    public void _load(String jsName) {
+        logger.trace("load() called with jsName " + jsName);
+        environment.loadJSResource(jsName);
+    }
+
+    public void _start() {
+        running = true;
+        logger.trace("start()");
+        executeTests();
+    }
+    public void _stop() {
+        logger.trace("stop()");
+        running = false;
+    }
+
     public void _test(String message, NativeFunction block) {
         logger.trace("Called test() with name: " + message);
 
-        Test test = new Test(message);
-        if(currentTest != null) currentTest.afterTest();
-        tests.add(test);
-        currentTest = test;
-        currentTest.beforeTest();
+        Test test = new Test(message, block);
+        test.setRhUnit(this);
 
-        block.call(context, scope, scope, new Object[]{});
-    }
+        queuedTests.add(test);
+        test.setModule(currentModule);
 
-    public void _ok(boolean result, String message) {
-        logger.trace("Called ok() with result: " + result + "; message: " + message);
-
-        if(currentTest == null)
-            throw new RuntimeException("ok() called without test()");
-
-        Assert a = new Assert(result, message);
-        currentTest.assertion(a);
-    }
-
-    public void _not_ok(boolean result, String message) {
-        logger.trace("Called not_ok() with result: " + result + "; message: " + message);
-
-        if(currentTest == null)
-            throw new RuntimeException("not_ok() called without test()");
-
-        Assert a = new Assert(!result, message);
-        currentTest.assertion(a);
-    }
-
-    public void _equal(String actual, String expected, String message) {
-        logger.trace("Called equal(): " + actual + ", " + expected + ": " + message);
-
-        if(currentTest == null)
-            throw new RuntimeException("equal() called without test()");
-
-        Assert a = new Assert(expected, actual, actual.equals(expected), message);
-        currentTest.assertion(a);
-    }
-
-    public void _not_equal(String actual, String expected, String message) {
-        logger.trace("Called not_equal(): " + actual + ", " + expected + ": " + message);
-
-        if(currentTest == null)
-            throw new RuntimeException("not_equal() called without test()");
-
-        Assert a = new Assert(expected, actual, !actual.equals(expected), message);
-        currentTest.assertion(a);
+        executeTests();
     }
 
     public void _expect(int tests) {
@@ -149,82 +258,16 @@ public class RhUnit {
         currentTest.expects(tests);
     }
 
-    public void _throws(Object block, String expected, String message) {
-        if(message == null) {
-            // expected is optional in qUnit!
-            message = expected;
-            expected = null;
-        }
-        logger.trace("Called throws() with message: " + message);
+    public void _module(String name) {
+        logger.trace("Called module() with name: " + name);
 
-        if(currentTest == null)
-            throw new RuntimeException("throws() called without test()");
+        if(currentTest != null)
+            throw new RuntimeException("Cannot call module() inside test()");
 
-        if(NativeFunction.class.isInstance(block)) {
-            try {
-                logger.trace("Given native function");
-                ((NativeFunction)block).call(context, scope, scope, new Object[] {});
-
-                // No exception thrown so its a failure
-                Assert a = new Assert(false, message);
-                a.setExpected(expected);
-                currentTest.assertion(a);
-            } catch (RhinoException e) {
-                logger.trace("Exception thrown by native function");
-
-                // Exception thrown so its a pass
-                // TODO need to actually check the messages returned here!
-                Assert a = new Assert(true, message);
-                a.setExpected(expected);
-                a.setActual(e.getMessage());
-                currentTest.assertion(a);
-            }
-        } else {
-            logger.trace("Not given native function, got " + block.getClass() + ": " + block);
-
-            // We weren't given a block...
-            Assert a = new Assert(false, message);
-            currentTest.assertion(a);
-        }
-    }
-
-    public void _not_throws(Object block, String expected, String message) {
-        if(message == null) {
-            // expected is optional in qUnit!
-            message = expected;
-            expected = null;
-        }
-        logger.trace("Called not_throws() with message: " + message);
-
-        if(currentTest == null)
-            throw new RuntimeException("not_throws() called without test()");
-
-        if(NativeFunction.class.isInstance(block)) {
-            try {
-                logger.trace("Given native function");
-                ((NativeFunction)block).call(context, scope, scope, new Object[] {});
-
-                // No exception thrown so its a pass
-                Assert a = new Assert(true, message);
-                a.setExpected(expected);
-                currentTest.assertion(a);
-            } catch (RhinoException e) {
-                logger.trace("Exception thrown by native function");
-
-                // Exception thrown so its a fail
-                // TODO need to actually check the messages returned here!
-                Assert a = new Assert(false, message);
-                a.setExpected(expected);
-                a.setActual(e.getMessage());
-                currentTest.assertion(a);
-            }
-        } else {
-            logger.trace("Not given native function, got " + block.getClass() + ": " + block);
-
-            // We weren't given a block...
-            Assert a = new Assert(true, message);
-            currentTest.assertion(a);
-        }
+        if(name != null && name.length() > 0)
+            currentModule = name;
+        else
+            currentModule = null;
     }
 
 }

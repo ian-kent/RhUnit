@@ -11,15 +11,15 @@ import uk.co.iankent.RhUnit.RhinoEnvironment;
  * RhUnit - A qUnit compatible Javascript unit testing framework for Rhino
  * Copyright (c) Ian Kent, 2012
  */
-public class RhUnitExample {
+public class jQueryExample {
 
-    protected static Logger logger = Logger.getLogger(RhUnitExample.class);
+    protected static Logger logger = Logger.getLogger(jQueryExample.class);
 
     protected RhUnit rhUnit;
     protected RhinoEnvironment rhinoEnvironment;
 
     public static void main(String[] args) {
-        RhUnitExample example = new RhUnitExample();
+        jQueryExample example = new jQueryExample();
         example.before();
         example.test();
         example.after();
@@ -39,7 +39,7 @@ public class RhUnitExample {
 
     @Test
     public void test() {
-        String specName = "org/example/RhUnitExample.js";
+        String specName = "org/example/jQueryExample.js";
         rhinoEnvironment.requireResource(specName);
     }
 
