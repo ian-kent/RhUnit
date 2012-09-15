@@ -29,7 +29,7 @@ public class RhinoEnvironmentImpl implements RhinoEnvironment {
 
     public RhinoEnvironmentImpl() {
         prepareRhino();
-        loadJSResource("env.rhino.js");
+        loadInternalResource("uk/co/iankent/RhUnit/env.rhino.js");
     }
 
     public RhinoTimer getRhinoTimer() {
@@ -52,13 +52,16 @@ public class RhinoEnvironmentImpl implements RhinoEnvironment {
         rhinoTimer = rhinoTimerFactory.getRhinoTimer(this);
     }
 
-    public void requireResource(String file) {
-        loadJSResource(file);
+    public void requireResource(InputStream is) {
+        loadJSResource(is);
     }
 
-    protected void loadJSResource(String res) {
+    protected void loadInternalResource(String res) {
         logger.trace("Loading resource " + res);
-        InputStream is = ClassLoader.getSystemResourceAsStream(res);
+        InputStream is = getClass().getClassLoader().getResourceAsStream(res);
+        loadJSResource(is);
+    }
+    protected void loadJSResource(InputStream is) {
         File f = null;
         try {
             f = File.createTempFile("res.rhino.", ".js");

@@ -33,13 +33,16 @@
 	<build>
 		<sourceDirectory>src/main</sourceDirectory>
         <testSourceDirectory>src/spec</testSourceDirectory>
-        <testResources>
-            <testResource>
+        <resources>
+            <resource>
                 <directory>src/resources</directory>
                 <includes>
                     <include>**/*.js</include>
+                    <include>**/*.xml</include>
                 </includes>
-            </testResource>
+            </resource>
+        </resources>
+        <testResources>
             <testResource>
                 <directory>src/spec</directory>
                 <includes>

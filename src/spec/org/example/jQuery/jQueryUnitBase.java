@@ -21,8 +21,8 @@ public abstract class jQueryUnitBase {
     @Before
     public void before() {
         rhUnit = new RhUnit();
-        rhUnit.getRhinoEnvironment().requireResource("org/example/jQuery/jquery.1.8.1.min.js");
-        rhUnit.getRhinoEnvironment().requireResource("org/example/jQuery/jquery.testinit.js");
+        rhUnit._load("org/example/jQuery/jquery.1.8.1.min.js");
+        rhUnit._load("org/example/jQuery/jquery.testinit.js");
     }
 
     @After

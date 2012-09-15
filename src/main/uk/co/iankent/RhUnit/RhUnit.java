@@ -20,6 +20,7 @@ import uk.co.iankent.RhUnit.assertors._ok.okAssertor;
 import uk.co.iankent.RhUnit.assertors._strictEqual.strictEqualAssertor;
 import uk.co.iankent.RhUnit.assertors._throws.throwsAssertor;
 
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -181,7 +182,20 @@ public class RhUnit {
     private void injectRhUnit() {
         Object wrappedRhUnit = Context.javaToJS(this, getScope());
         ScriptableObject.putProperty(getScope(), "RhUnit", wrappedRhUnit);
-        rhinoEnvironment.requireResource("rhunit.js");
+        loadInternalResource("uk/co/iankent/RhUnit/rhunit.js");
+    }
+    private void loadInternalResource(String res) {
+        logger.trace("Loading resource " + res);
+        InputStream is = getClass().getClassLoader().getResourceAsStream(res);
+        loadStream(is);
+    }
+    private void loadExternalResource(String res) {
+        logger.trace("Loading resource " + res);
+        InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(res);
+        loadStream(is);
+    }
+    private void loadStream(InputStream is) {
+        rhinoEnvironment.requireResource(is);
     }
 
     public void addAssertor(AbstractAssertor assertor) {
@@ -191,7 +205,16 @@ public class RhUnit {
 
     public void test(String test) {
         // Load the javascript
-        this.rhinoEnvironment.requireResource(test);
+        loadExternalResource(test);
+
+        // Now run the tests
+        currentModule = null;
+        executeTests();
+    }
+
+    public void test(InputStream is) {
+        // Load the javascript
+        loadStream(is);
 
         // Now run the tests
         currentModule = null;
@@ -345,7 +368,7 @@ public class RhUnit {
      */
     public void _load(String jsName) {
         logger.trace("load() called with jsName " + jsName);
-        rhinoEnvironment.requireResource(jsName);
+        loadExternalResource(jsName);
     }
 
     /* Asynchronous test control */
