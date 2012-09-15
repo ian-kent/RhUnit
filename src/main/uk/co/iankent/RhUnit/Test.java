@@ -16,17 +16,22 @@ public class Test {
     protected Logger logger = Logger.getLogger(this.getClass());
 
     protected String message = null;
-    protected String module = null;
+    protected Module module = null;
     protected NativeFunction block = null;
     protected Integer expected = null;
     protected List<AbstractAssertorResult> results = new LinkedList<AbstractAssertorResult>();
 
     protected int passed = 0, failed = 0, total = 0;
+    protected boolean async = false;
 
     protected RhUnit rhUnit;
 
-    public void setRhUnit(RhUnit rhUnit) {
-        this.rhUnit = rhUnit;
+    public boolean isAsync() {
+        return async;
+    }
+
+    public void setAsync(boolean async) {
+        this.async = async;
     }
 
     @Override
@@ -39,17 +44,27 @@ public class Test {
                 '}';
     }
 
-    public Test(String message, NativeFunction block) {
+    public Test(RhUnit rhUnit, String message, NativeFunction block, Integer expected) {
+        this.rhUnit = rhUnit;
+
         this.message = message;
         this.block = block;
+        this.expected = expected;
     }
 
     public void execute() {
+        if(isAsync()) rhUnit._stop();
+
+        rhUnit.getQUnit().callQUnitTestStart();
+        beforeTest();
         try {
-            block.call(rhUnit.getContext(), rhUnit.getScope(), rhUnit.getScope(), new Object[]{});
+            block.call(rhUnit.getContext(), rhUnit.getScope(), rhUnit.getScope(), new Object[]{ rhUnit.getScope().get("RhUnitAssert", rhUnit.getScope()) });
         } catch (RuntimeException re) {
             logger.error(re, re);
         }
+        rhUnit.getRhinoEnvironment().getRhinoTimer().join();
+        afterTest();
+        rhUnit.getQUnit().callQUnitTestDone();
     }
 
     public void result(AbstractAssertorResult result) {
@@ -66,13 +81,15 @@ public class Test {
     }
 
     public void afterTest() {
+        logger.trace("afterTest for " + getMessage());
         total = passed + failed;
 
-        if(expected != total)
-            throw new RuntimeException(
-                    (getModule() != null && getModule().length() > 0 ? getModule() + ": " : "") +
-                    getMessage() + ": Expected " + expected + " tests, ran " + total + " tests"
-            );
+        if(expected != null)
+            if(expected != total)
+                logger.error(
+                        (getModule() != null ? getModule().name + ": " : "") +
+                        getMessage() + ": Expected " + expected + " tests, ran " + total + " tests"
+                );
     }
 
     public void beforeTest() {
@@ -99,11 +116,11 @@ public class Test {
         return results;
     }
 
-    public String getModule() {
+    public Module getModule() {
         return module;
     }
 
-    public void setModule(String module) {
+    public void setModule(Module module) {
         this.module = module;
     }
 }

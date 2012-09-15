@@ -3,7 +3,7 @@ RhUnit
 
 A qUnit compatible javascript unit testing framework for Rhino
 
-To get started, just run the RhUnitExample or jQueryExample tests - either directly or via JUnit4.
+To get started, just run the RhUnitExample or jQuery tests - either directly or via JUnit4.
 
 Happy javascript testing :)
 

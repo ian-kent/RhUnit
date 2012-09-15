@@ -1,6 +1,7 @@
 package uk.co.iankent.RhUnit.assertors;
 
 import org.apache.log4j.Logger;
+import uk.co.iankent.RhUnit.Module;
 
 /**
  * RhUnit - A qUnit compatible Javascript unit testing framework for Rhino
@@ -11,7 +12,7 @@ public abstract class AbstractAssertorResult {
     protected Logger logger = Logger.getLogger(this.getClass());
 
     protected String message;
-    protected String module;
+    protected Module module;
 
     public abstract boolean getPassed();
     public abstract String getName();
@@ -21,7 +22,7 @@ public abstract class AbstractAssertorResult {
         return String.format(
                 "%s %s%s - %s",
                 getPassed() ? "PASS" : "FAIL",
-                getModule() == null || getModule().length() == 0 ? "" : getModule() + ": ",
+                getModule() == null ? "" : getModule().getName() + ": ",
                 getName(),
                 getMessage()
                 );
@@ -35,11 +36,11 @@ public abstract class AbstractAssertorResult {
         return message;
     }
 
-    public String getModule() {
+    public Module getModule() {
         return module;
     }
 
-    public void setModule(String module) {
+    public void setModule(Module module) {
         this.module = module;
     }
 }

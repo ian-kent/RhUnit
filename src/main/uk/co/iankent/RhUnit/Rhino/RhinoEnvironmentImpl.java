@@ -1,44 +1,55 @@
-package uk.co.iankent.RhUnit;
+package uk.co.iankent.RhUnit.Rhino;
 
-import junit.framework.*;
 import org.apache.commons.io.IOUtils;
 import org.apache.log4j.Logger;
-import org.junit.Test;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ContextFactory;
 import org.mozilla.javascript.Scriptable;
-import org.mozilla.javascript.ScriptableObject;
-import org.mozilla.javascript.tools.shell.Global;
 import org.mozilla.javascript.tools.shell.Main;
 
 import java.io.*;
-import java.nio.charset.Charset;
 
 /**
  * RhUnit - A qUnit compatible Javascript unit testing framework for Rhino
  * Copyright (c) Ian Kent, 2012
  */
-public class RhinoEnvironment {
+public class RhinoEnvironmentImpl implements RhinoEnvironment {
 
-    protected Logger logger = Logger.getLogger(RhinoEnvironment.class);
+    protected Logger logger = Logger.getLogger(RhinoEnvironmentImpl.class);
 
     protected Context context;
     protected Scriptable scope;
-    protected RhUnit RhUnit;
+    protected uk.co.iankent.RhUnit.RhUnit RhUnit;
+    protected RhinoTimer rhinoTimer;
 
-    public RhinoEnvironment() {
+    protected static RhinoTimerFactory rhinoTimerFactory = new RhinoTimerFactoryImpl();
+    protected static void setRhinoTimerFactory(RhinoTimerFactory factory) {
+        rhinoTimerFactory = factory;
+    }
+
+    public RhinoEnvironmentImpl() {
         prepareRhino();
         loadJSResource("env.rhino.js");
     }
 
+    public RhinoTimer getRhinoTimer() {
+        return rhinoTimer;
+    }
+
     private void prepareRhino() {
-        logger.trace("Preparing Rhino environment");
+        logger.trace("Preparing Rhino rhinoEnvironment");
         context = ContextFactory.getGlobal().enterContext();
-        context.setOptimizationLevel(-1);
-        context.setLanguageVersion(Context.VERSION_1_7);
-        Global global = Main.getGlobal();
-        global.init(context);
-        scope = context.initStandardObjects(global);
+        try {
+            context.setOptimizationLevel(-1);
+            context.setLanguageVersion(Context.VERSION_1_7);
+            Main.getGlobal().init(context);
+        } catch (IllegalStateException e) {
+            // This is expected if we're running a series of tests, e.g. with a Suite
+            logger.trace(e, e);
+        }
+        scope = context.initStandardObjects(Main.getGlobal());
+
+        rhinoTimer = rhinoTimerFactory.getRhinoTimer(this);
     }
 
     public void requireResource(String file) {
@@ -47,7 +58,7 @@ public class RhinoEnvironment {
 
     protected void loadJSResource(String res) {
         logger.trace("Loading resource " + res);
-        InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(res);
+        InputStream is = ClassLoader.getSystemResourceAsStream(res);
         File f = null;
         try {
             f = File.createTempFile("res.rhino.", ".js");
@@ -65,6 +76,7 @@ public class RhinoEnvironment {
     }
 
     public Context getContext() {
+        context = ContextFactory.getGlobal().enterContext();
         return context;
     }
 

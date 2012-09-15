@@ -1,14 +1,29 @@
 package uk.co.iankent.RhUnit;
 
+import com.sun.javaws.exceptions.InvalidArgumentException;
+import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.mozilla.javascript.*;
+import org.mozilla.javascript.Context;
+import uk.co.iankent.RhUnit.QUnit.QUnit;
+import uk.co.iankent.RhUnit.QUnit.QUnitFactory;
+import uk.co.iankent.RhUnit.QUnit.QUnitFactoryImpl;
+import uk.co.iankent.RhUnit.Rhino.RhinoEnvironment;
+import uk.co.iankent.RhUnit.Rhino.RhinoEnvironmentFactory;
+import uk.co.iankent.RhUnit.Rhino.RhinoEnvironmentFactoryImpl;
 import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
 import uk.co.iankent.RhUnit.assertors.AbstractAssertorResult;
+import uk.co.iankent.RhUnit.assertors.Assertor;
+import uk.co.iankent.RhUnit.assertors._deepEqual.deepEqualAssertor;
 import uk.co.iankent.RhUnit.assertors._equal.equalAssertor;
+import uk.co.iankent.RhUnit.assertors._notEqual.notEqualAssertor;
 import uk.co.iankent.RhUnit.assertors._ok.okAssertor;
 import uk.co.iankent.RhUnit.assertors._strictEqual.strictEqualAssertor;
 import uk.co.iankent.RhUnit.assertors._throws.throwsAssertor;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 /**
@@ -18,255 +33,395 @@ import java.util.*;
 public class RhUnit {
 
     protected Logger logger = Logger.getLogger(this.getClass());
+    protected static Logger staticLogger = Logger.getLogger(RhUnit.class);
 
-    protected RhinoEnvironment environment;
-    protected Context context;
-    protected Scriptable scope;
-
-    protected Queue<Test> queuedTests = new LinkedList<Test>();
-    protected List<Test> completedTests = new LinkedList<Test>();
-    protected Test currentTest = null;
-
-    protected int total = 0, passed = 0, failed = 0;
-
-    protected String currentModule = null;
-
-    protected boolean running = true;
-    protected boolean executing = false;
-
-    public RhUnit(RhinoEnvironment environment) {
-        this.environment = environment;
-        this.context = environment.getContext();
-        this.scope = environment.getScope();
-
-        beforeRhUnit();
+    /* Rhino environment */
+    protected static RhinoEnvironmentFactory rhinoEnvironmentFactory = new RhinoEnvironmentFactoryImpl();
+    protected static void setRhinoEnvironmentFactory(RhinoEnvironmentFactory factory) {
+        rhinoEnvironmentFactory = factory;
     }
+    protected RhinoEnvironment rhinoEnvironment;
+    protected Hashtable<String, AbstractAssertor> assertors;
+    protected static LinkedList<AbstractAssertor> registeredAssertors = new LinkedList<AbstractAssertor>();
+    protected static void registerAssertor(Class<?> klass) throws InvalidArgumentException {
+        if(!AbstractAssertor.class.isAssignableFrom(klass)) {
+            throw new InvalidArgumentException(
+                    new String[] {"Assertor class must inherit from " + AbstractAssertor.class.getName()}
+            );
+        }
 
-    public Context getContext() {
-        return context;
-    }
-
-    public Scriptable getScope() {
-        return scope;
-    }
-
-    protected Timer timer = new Timer();
-    protected int outstandingTimeouts = 0;
-    protected int timerId = 0;
-    HashMap<Integer, TimerTask> timerTasks = new HashMap<Integer, TimerTask>();
-
-    public int _setTimeout(int timeout, final NativeFunction block) {
-        outstandingTimeouts++;
-        timerId++;
-        final int thisTimerId = timerId;
-
-        logger.trace("Setting timeout of " + timeout + "ms with ID " + thisTimerId);
-
-        TimerTask task = new TimerTask() {
-            @Override
-            public void run() {
-                if(!timerTasks.containsKey(thisTimerId)) return;
-
-                logger.trace("Executing timer with ID " + thisTimerId);
-
-                timerTasks.remove(thisTimerId);
-                block.call(getContext(), getScope(), getScope(), new Object[] {});
-                outstandingTimeouts--;
-            }
-        };
-        timerTasks.put(thisTimerId, task);
-        timer.schedule(task, timeout);
-
-        return thisTimerId;
-    }
-
-    public void _cancelTimeout(int id) {
-        logger.trace("Cancelling timeout with ID " + id);
-        timerTasks.remove(id);
-    }
-
-    protected void beforeRhUnit() {
-        Object wrappedRhUnit = Context.javaToJS(this, scope);
-        ScriptableObject.putProperty(scope, "RhUnit", wrappedRhUnit);
-
-        // This maps javascript functions to RhUnit methods
-        String code =
-                "function load(file) { RhUnit._load(file); };\n" +
-                "function test(message, block) { RhUnit._test(message, block); };\n" +
-                "function expect(tests) { RhUnit._expect(tests); };\n" +
-                "function start() { RhUnit._start(); };\n" +
-                "function stop() { RhUnit._stop(); };\n" +
-                "function module(name) { RhUnit._module(name); };\n" +
-                "function setTimeout(block, timeout) { RhUnit._setTimeout(timeout, block); };\n" +
-                "function cancelTimeout(id) { RhUnit._cancelTimeout(id); };\n";
-        context.evaluateString(scope, code, "RhUnit", 1, null);
-
-        List<AbstractAssertor> assertors = new LinkedList<AbstractAssertor>();
-        assertors.add(new okAssertor());
-        assertors.add(new equalAssertor());
-        assertors.add(new throwsAssertor());
-        assertors.add(new strictEqualAssertor());
-
-        for(AbstractAssertor assertor : assertors) {
-            assertor.setRhUnit(this);
-            Object wrappedAssertor = Context.javaToJS(assertor, scope);
-            ScriptableObject.putProperty(scope, assertor.getClass().getSimpleName(), wrappedAssertor);
-            context.evaluateString(scope, assertor.getJavascript(), assertor.getClass().getSimpleName(), 1, null);
+        try {
+            Constructor c = klass.getConstructor(new Class[] {});
+            registeredAssertors.add((AbstractAssertor)c.newInstance(new Object[] {}));
+        } catch (NoSuchMethodException e) {
+            staticLogger.error(e, e);
+            InvalidArgumentException ex = new InvalidArgumentException(
+                    new String[] {
+                            "Assertor class " + klass.getName() + " does not provide a constructor which takes no arguments"
+                    }
+            );
+            ex.initCause(e);
+            throw ex;
+        } catch (InstantiationException e) {
+            staticLogger.error(e, e);
+            InvalidArgumentException ex = new InvalidArgumentException(
+                    new String[] {
+                            "Assertor class " + klass.getName() + " could not be instantiated"
+                    }
+            );
+            ex.initCause(e);
+            throw ex;
+        } catch (IllegalAccessException e) {
+            staticLogger.error(e, e);
+            InvalidArgumentException ex = new InvalidArgumentException(
+                    new String[] {
+                            "Assertor class " + klass.getName() + " is not public or does not have a public constructor"
+                    }
+            );
+            ex.initCause(e);
+            throw ex;
+        } catch (InvocationTargetException e) {
+            staticLogger.error(e, e);
+            InvalidArgumentException ex = new InvalidArgumentException(
+                    new String[] {
+                            "Assertor class " + klass.getName() + " could not be instantiated"
+                    }
+            );
+            ex.initCause(e);
+            throw ex;
         }
     }
 
+    /* Module control */
+    protected Queue<Module> queuedModules;
+    protected List<Module> completedModules;
+    protected Module currentModule;
+
+    /* Execution control */
+    protected boolean running;
+    protected boolean executing;
+    protected RhUnitTimer rhUnitTimer;
+
+    /* QUnitImpl compatibility */
+    protected static QUnitFactory qUnitFactory = new QUnitFactoryImpl();
+    protected static void setQUnitFactory(QUnitFactory factory) {
+        qUnitFactory = factory;
+    }
+    protected QUnit qUnit;
+
+    public RhUnit() {
+        initRhUnit();
+    }
+
+    protected void initRhUnit() {
+        // rhino setup
+        rhinoEnvironment = rhinoEnvironmentFactory.getRhinoEnvironment();
+
+        // module setup
+        queuedModules = new LinkedList<Module>();
+        completedModules = new LinkedList<Module>();
+        currentModule = new DefaultModule(this);
+        queuedModules.add(currentModule);
+
+        // reset execution control
+        running = true;
+        executing = false;
+        rhUnitTimer = new RhUnitTimer();
+
+        // setup default assertors
+        assertors = new Hashtable<String, AbstractAssertor>();
+        addAssertor(new okAssertor());
+        addAssertor(new equalAssertor());
+        addAssertor(new throwsAssertor());
+        addAssertor(new strictEqualAssertor());
+        addAssertor(new notEqualAssertor());
+        addAssertor(new deepEqualAssertor());
+
+        for(AbstractAssertor assertor : registeredAssertors) {
+            addAssertor(assertor);
+        }
+
+        // setup RhUnit
+        injectRhUnit();
+        injectAssertors();
+
+        // setup QUnit
+        qUnit = qUnitFactory.getQUnit(this);
+    }
+
+    private void injectAssertors() {
+        for(AbstractAssertor assertor : assertors.values()) {
+            // Add the assertor to the javascript environment
+            assertor.setRhUnit(this);
+            Object wrappedAssertor = Context.javaToJS(assertor, getScope());
+            ScriptableObject.putProperty(getScope(), assertor.getClass().getSimpleName(), wrappedAssertor);
+
+            // Setup the assertion methods
+            String className = assertor.getClass().getSimpleName();
+            for(Method method : assertor.getClass().getMethods()) {
+                Assertor a = method.getAnnotation(Assertor.class);
+                if(a == null) continue;
+
+                int paramCount = method.getParameterTypes().length;
+
+                LinkedList<String> params = new LinkedList<String>();
+                for(int i = 0; i < paramCount; i++) {
+                    params.add(String.format("param%s", i));
+                }
+
+                String paramList = StringUtils.join(params.toArray(), ", ");
+                String js = String.format(
+                        "function %s(%s) { return %s.%s(%s); }",
+                        a.value(),
+                        paramList,
+                        className,
+                        method.getName(),
+                        paramList
+                );
+
+                logger.trace("Executing javascript: " + js);
+
+                getContext().evaluateString(getScope(), js, className, 1, null);
+                getContext().evaluateString(getScope(), "RhUnitAssert." + a.value() + " = " + a.value(), "RhUnitAssert", 1, null);
+            }
+        }
+    }
+
+    private void injectRhUnit() {
+        Object wrappedRhUnit = Context.javaToJS(this, getScope());
+        ScriptableObject.putProperty(getScope(), "RhUnit", wrappedRhUnit);
+        rhinoEnvironment.requireResource("rhunit.js");
+    }
+
+    public void addAssertor(AbstractAssertor assertor) {
+        if(assertors.get(assertor.getClass().getSimpleName()) != null) return;
+        assertors.put(assertor.getClass().getSimpleName(), assertor);
+    }
+
+    public void test(String test) {
+        // Load the javascript
+        this.rhinoEnvironment.requireResource(test);
+
+        // Now run the tests
+        currentModule = null;
+        executeTests();
+    }
+
+    public void rhUnitBegin() {
+        // Start the execution timer
+        if(!rhUnitTimer.start()) return;
+
+        // Run any QUnitImpl.begin() callbacks
+        qUnit.callQUnitBegin();
+    }
+    public void rhUnitDone() {
+        afterRhUnit();
+
+        // Stop the execution timer
+        rhUnitTimer.stop();
+
+        // Run any QUnitImpl.done() callbacks
+        qUnit.callQUnitDone(rhUnitTimer.getRuntime(), getTotal(), getPassed(), getFailed());
+
+        // Log the execution runtime
+        logger.trace("Runtime was " + rhUnitTimer.getRuntime() + "ms");
+    }
+
+    public Context getContext() {
+        return rhinoEnvironment.getContext();
+    }
+
+    public Scriptable getScope() {
+        return rhinoEnvironment.getScope();
+    }
+
+    public RhinoEnvironment getRhinoEnvironment() {
+        return rhinoEnvironment;
+    }
+
+    public QUnit getQUnit() {
+        return qUnit;
+    }
+
+    public boolean isRunning() {
+        return running;
+    }
+
+    public boolean isExecuting() {
+        return executing;
+    }
+
     public void afterRhUnit() {
-        while(outstandingTimeouts > 0 || executing) {
+        waitForTestCompletion();
+
+        if(queuedModules.size() > 0)
+            logger.error("Some modules were not complete");
+
+        if(getTotal() == 0)
+            logger.error("No tests were run");
+
+        logger.info("RhUnit tests complete");
+
+        outputTestResults();
+    }
+
+    public void outputTestResults() {
+        for(Module module : completedModules) {
+            module.outputTestResults();
+        }
+        logger.info(this);
+    }
+
+    private void waitForTestCompletion() {
+        // Wait until rhinoTimer has completed all callbacks and execution has stopped
+        while(rhinoEnvironment.getRhinoTimer().getOutstandingTimeouts() > 0 || executing) {
             // This trace is *overly* verbose!
             //logger.trace("Still got outstanding tests: " + outstandingTimeouts + " " + executing);
+
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
                 logger.error(e, e);
             }
         }
-
-        if(queuedTests.size() > 0)
-            logger.error("Some tests were not complete");
-
-        if(completedTests.size() == 0)
-            logger.error("No tests were run");
-
-        logger.info("RhUnit tests complete");
-        for(Test test : completedTests) {
-            total += test.getTotal();
-            passed += test.getPassed();
-            failed += test.getFailed();
-            logger.info(test.toString());
-
-            for(AbstractAssertorResult result : test.getResults()) {
-                logger.info(result.toString());
-            }
-        }
-        logger.info(toString());
     }
 
     public int getTotal() {
+        int total = 0;
+        for(Module module : completedModules) {
+            total += module.getTotal();
+        }
         return total;
     }
 
     public int getPassed() {
+        int passed = 0;
+        for(Module module : completedModules) {
+            passed += module.getPassed();
+        }
         return passed;
     }
 
     public int getFailed() {
+        int failed = 0;
+        for(Module module : completedModules) {
+            failed += module.getFailed();
+        }
         return failed;
     }
 
     @Override
     public String toString() {
         return "RhUnit{" +
-                "total=" + total +
-                ", passed=" + passed +
-                ", failed=" + failed +
+                "total=" + getTotal() +
+                ", passed=" + getPassed() +
+                ", failed=" + getFailed() +
                 '}';
     }
 
     public void result(AbstractAssertorResult result) {
         // do something with it - i.e. add it to the current test!
-        if(currentTest == null)
-            throw new RuntimeException(result.getName() + "() called outside test()");
+        if(currentModule == null || currentModule.currentTest == null) {
+            RuntimeException e = new RuntimeException(result.getName() + "() called outside test()");
+            logger.error(e);
+        } else {
+            result.setModule(currentModule);
+            currentModule.currentTest.result(result);
+        }
 
-        result.setModule(currentModule);
-        currentTest.result(result);
+        qUnit.callQUnitLog(result);
     }
 
     public void executeTests() {
-        logger.trace("Beginning executeTests");
-        if(executing) {
-            logger.trace("Already executing - returning");
-            return;
-        }
-        if(!running) {
-            logger.trace("Not running - returning");
-            return;
-        }
-        executing = true;
+        qUnit.callQUnitBegin();
+        rhUnitBegin();
 
-        if(currentTest != null) {
-            logger.trace("Finishing test: " + currentTest.getMessage());
-            currentTest.afterTest();
-            completedTests.add(currentTest);
-            currentTest = null;
+        while(queuedModules.size() > 0) {
+            Module module = queuedModules.remove();
+            currentModule = module;
+            module.execute();
+            completedModules.add(module);
+            currentModule = null;
         }
 
-        while(queuedTests.size() > 0) {
-            if(!running) {
-                logger.trace("Not running - assuming stop() was called");
-                break;
-            }
-
-            Test test = queuedTests.remove();
-            currentTest = test;
-            test.beforeTest();
-            logger.trace("Executing test: " + test.getMessage());
-            test.execute();
-
-            if(running) {
-                logger.trace("Finishing test: " + test.getMessage());
-                test.afterTest();
-                currentTest = null;
-                completedTests.add(test);
-            } else {
-                logger.trace("Not running - assuming stop() was called, delaying finishing test");
-            }
-        }
-
-        executing = false;
-        logger.trace("Done executeTests");
+        rhUnitDone();
+        qUnit.callQUnitDone(rhUnitTimer.getRuntime(), getTotal(), getFailed(), getPassed());
     }
 
+    /**
+     * Loads a resource into the Rhino environment
+     * @param jsName
+     */
     public void _load(String jsName) {
         logger.trace("load() called with jsName " + jsName);
-        environment.loadJSResource(jsName);
+        rhinoEnvironment.requireResource(jsName);
     }
 
-    public void _start() {
+    /* Asynchronous test control */
+    public void _start() { _start(1); }
+    public void _start(int decrement) {
+        /* TODO
+           This doesn't really do anything...
+           RhUnit waits for any timers linked to a test to completed so
+           asynchronous testing works out of the box without needing start()/stop() calls
+         */
         running = true;
         logger.trace("start()");
-        executeTests();
     }
-    public void _stop() {
+    public void _stop() { _stop(1); }
+    public void _stop(int increment) {
+        /* TODO
+           This doesn't really do anything...
+           RhUnit waits for any timers linked to a test to completed so
+           asynchronous testing works out of the box without needing start()/stop() calls
+         */
         logger.trace("stop()");
         running = false;
     }
 
+    public void _test(String message, int expected, NativeFunction block) {
+        logger.trace("Called test() with name: " + message + "; expected: " + expected);
+
+        Test test = new Test(this, message, block, expected);
+        currentModule.addTest(test);
+    }
     public void _test(String message, NativeFunction block) {
         logger.trace("Called test() with name: " + message);
 
-        Test test = new Test(message, block);
-        test.setRhUnit(this);
+        Test test = new Test(this, message, block, null);
+        currentModule.addTest(test);
+    }
 
-        queuedTests.add(test);
-        test.setModule(currentModule);
+    public void _asyncTest(String message, Integer expected, NativeFunction block) {
+        logger.trace("Called asyncTest() with name: " + message);
 
-        executeTests();
+        Test test = new Test(this, message, block, expected);
+        test.setAsync(true);
+        currentModule.addTest(test);
+    }
+    public void _asyncTest(String message, NativeFunction block) {
+        logger.trace("Called asyncTest() with name: " + message);
+
+        Test test = new Test(this, message, block, null);
+        test.setAsync(true);
+        currentModule.addTest(test);
     }
 
     public void _expect(int tests) {
         logger.trace("Called expect() with tests: " + tests);
 
-        if(currentTest == null)
+        if(currentModule == null || currentModule.currentTest == null)
             throw new RuntimeException("expect() called without test()");
 
-        currentTest.expects(tests);
+        currentModule.currentTest.expects(tests);
     }
 
-    public void _module(String name) {
+    public void _module(String name, NativeFunction setup, NativeFunction teardown) {
         logger.trace("Called module() with name: " + name);
 
-        if(currentTest != null)
-            throw new RuntimeException("Cannot call module() inside test()");
-
-        if(name != null && name.length() > 0)
-            currentModule = name;
-        else
-            currentModule = null;
+        Module module = new Module(this, name, setup, teardown);
+        queuedModules.add(module);
+        currentModule = module;
     }
 
 }

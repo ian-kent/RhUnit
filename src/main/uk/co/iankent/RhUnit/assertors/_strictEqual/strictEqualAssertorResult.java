@@ -23,7 +23,13 @@ public class strictEqualAssertorResult extends AbstractAssertorResult {
     }
 
     @Override
+    public String toString() {
+        return super.toString() + " (Expected: " + expected + ", Actual: " + actual + ")";
+    }
+
+    @Override
     public boolean getPassed() {
+        if(actual == null || expected == null) return actual == expected ? true : false;
         return actual.equals(expected) && actual.getClass().equals(expected.getClass());
     }
 }

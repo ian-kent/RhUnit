@@ -3,6 +3,7 @@ package uk.co.iankent.RhUnit.assertors._throws;
 import org.mozilla.javascript.NativeFunction;
 import org.mozilla.javascript.RhinoException;
 import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
+import uk.co.iankent.RhUnit.assertors.Assertor;
 import uk.co.iankent.RhUnit.assertors._equal.equalAssertorResult;
 
 /**
@@ -11,11 +12,12 @@ import uk.co.iankent.RhUnit.assertors._equal.equalAssertorResult;
  */
 public class throwsAssertor extends AbstractAssertor {
 
-    @Override
-    public String getJavascript() {
-        return "function throws(block, expected, message) { throwsAssertor._throws(block, expected, message); };";
+    @Assertor("raises")
+    public void _raises(Object block, String expected, String message) {
+        _throws(block, expected, message);
     }
 
+    @Assertor("throws")
     public void _throws(Object block, String expected, String message) {
         if(message == null) {
             // expected is optional in qUnit!

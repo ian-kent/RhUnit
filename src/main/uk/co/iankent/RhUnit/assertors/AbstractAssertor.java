@@ -10,8 +10,6 @@ import uk.co.iankent.RhUnit.RhUnit;
 public abstract class AbstractAssertor {
     protected Logger logger = Logger.getLogger(this.getClass());
 
-    public abstract String getJavascript();
-
     protected RhUnit rhUnit;
 
     public void setRhUnit(RhUnit rhUnit) {

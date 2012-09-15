@@ -25,6 +25,7 @@ test( "Tests that pass", function() {
     throws(function() { throw "Another exception"; }, "Another exception", "Throws an exception");
 });
 
+/*
 test( "Tests that fail", function() {
 	expect(5);
 
@@ -37,6 +38,7 @@ test( "Tests that fail", function() {
 
     throws(function() { return "Not an exception"; }, "Not an exception", "Throws an exception");
 });
+*/
 
 test( "Async test", function() {
     expect(1);
@@ -45,10 +47,45 @@ test( "Async test", function() {
     setTimeout(function() {
         ok(true, "Delayed async test runs");
         start();
-    }, 10000);
+    }, 500);
 });
 
 test( "Test following async", function() {
+    expect(1);
+    ok(true, "This test runs");
+});
+
+test( "Repeated async test", function() {
+    expect(1);
+
+    stop();
+    var counter = 0;
+    var id = setInterval(function() {
+        counter++;
+        if(counter >= 5) {
+            cancelInterval(id);
+            ok(true, "Interval is repeated");
+            start();
+        }
+    }, 1000);
+});
+
+test( "Test following repeated async", function() {
+    expect(1);
+    ok(true, "This test runs");
+});
+
+asyncTest( "asyncTest test", function() {
+    expect(1);
+
+    stop();
+    setTimeout(function() {
+        ok(true, "asyncTest test runs");
+        start();
+    }, 500);
+});
+
+test( "Test following asyncTest test", function() {
     expect(1);
     ok(true, "This test runs");
 });

@@ -1,7 +1,6 @@
 package uk.co.iankent.RhUnit.assertors._throws;
 
 import org.mozilla.javascript.RhinoException;
-import uk.co.iankent.RhUnit.RhinoEnvironment;
 import uk.co.iankent.RhUnit.assertors.AbstractAssertorResult;
 
 /**
@@ -21,15 +20,7 @@ public class throwsAssertorResult extends AbstractAssertorResult {
 
     @Override
     public String getName() {
-        return "ok";
-    }
-
-    public boolean isResult() {
-        return result;
-    }
-
-    public void setResult(boolean result) {
-        this.result = result;
+        return "throws";
     }
 
     @Override

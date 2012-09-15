@@ -1,6 +1,7 @@
 package uk.co.iankent.RhUnit.assertors._strictEqual;
 
 import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
+import uk.co.iankent.RhUnit.assertors.Assertor;
 
 /**
  * RhUnit - A qUnit compatible Javascript unit testing framework for Rhino
@@ -8,11 +9,7 @@ import uk.co.iankent.RhUnit.assertors.AbstractAssertor;
  */
 public class strictEqualAssertor extends AbstractAssertor {
 
-    @Override
-    public String getJavascript() {
-        return "function strictEqual(actual, expected, message) { strictEqualAssertor.strictEqual(actual, expected, message); };";
-    }
-
+    @Assertor("strictEqual")
     public void strictEqual(Object actual, Object expected, String message) {
         logger.trace(String.format("Actual[%s], Expected[%s], Message[%s]", actual, expected, message));
         result(new strictEqualAssertorResult(message, actual, expected));
