@@ -1,6 +1,5 @@
 package uk.co.iankent.RhUnit;
 
-import com.sun.javaws.exceptions.InvalidArgumentException;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.mozilla.javascript.*;
@@ -43,10 +42,10 @@ public class RhUnit {
     protected RhinoEnvironment rhinoEnvironment;
     protected Hashtable<String, AbstractAssertor> assertors;
     protected static LinkedList<AbstractAssertor> registeredAssertors = new LinkedList<AbstractAssertor>();
-    protected static void registerAssertor(Class<?> klass) throws InvalidArgumentException {
+    protected static void registerAssertor(Class<?> klass) throws IllegalArgumentException {
         if(!AbstractAssertor.class.isAssignableFrom(klass)) {
-            throw new InvalidArgumentException(
-                    new String[] {"Assertor class must inherit from " + AbstractAssertor.class.getName()}
+            throw new IllegalArgumentException(
+                    "Assertor class must inherit from " + AbstractAssertor.class.getName()
             );
         }
 
@@ -55,37 +54,29 @@ public class RhUnit {
             registeredAssertors.add((AbstractAssertor)c.newInstance(new Object[] {}));
         } catch (NoSuchMethodException e) {
             staticLogger.error(e, e);
-            InvalidArgumentException ex = new InvalidArgumentException(
-                    new String[] {
-                            "Assertor class " + klass.getName() + " does not provide a constructor which takes no arguments"
-                    }
+            IllegalArgumentException ex = new IllegalArgumentException(
+                    "Assertor class " + klass.getName() + " does not provide a constructor which takes no arguments"
             );
             ex.initCause(e);
             throw ex;
         } catch (InstantiationException e) {
             staticLogger.error(e, e);
-            InvalidArgumentException ex = new InvalidArgumentException(
-                    new String[] {
-                            "Assertor class " + klass.getName() + " could not be instantiated"
-                    }
+            IllegalArgumentException ex = new IllegalArgumentException(
+                    "Assertor class " + klass.getName() + " could not be instantiated"
             );
             ex.initCause(e);
             throw ex;
         } catch (IllegalAccessException e) {
             staticLogger.error(e, e);
-            InvalidArgumentException ex = new InvalidArgumentException(
-                    new String[] {
-                            "Assertor class " + klass.getName() + " is not public or does not have a public constructor"
-                    }
+            IllegalArgumentException ex = new IllegalArgumentException(
+                    "Assertor class " + klass.getName() + " is not public or does not have a public constructor"
             );
             ex.initCause(e);
             throw ex;
         } catch (InvocationTargetException e) {
             staticLogger.error(e, e);
-            InvalidArgumentException ex = new InvalidArgumentException(
-                    new String[] {
-                            "Assertor class " + klass.getName() + " could not be instantiated"
-                    }
+            IllegalArgumentException ex = new IllegalArgumentException(
+                    "Assertor class " + klass.getName() + " could not be instantiated"
             );
             ex.initCause(e);
             throw ex;
