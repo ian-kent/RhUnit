@@ -19,7 +19,7 @@ public class throwsAssertor extends AbstractAssertor {
 
     @Assertor("throws")
     public void _throws(Object block, String expected, String message) {
-        if(message == null) {
+        if(message == null || message == "undefined") { // TODO this cant be the best way to check for undefinedness!?
             // expected is optional in qUnit!
             message = expected;
             expected = null;
